@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Pokeball from "@/components/Pokeball";
 import CardImage from "@/components/CardImage";
 import { money, num, rarityColor, conditionColor } from "@/lib/format";
@@ -113,33 +113,71 @@ export default function ShopPage() {
     }).catch(() => {});
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const p = new URLSearchParams({
-        search: debounced,
-        set: setF,
-        rarity: rarityF,
-        sort,
-        page: String(page),
-        limit: "24",
-      });
-      const r = await fetch(`/api/cards?${p}`);
-      const d = await r.json();
-      setCards((d.cards || []).filter((c: Card) => (c.quantity ?? 0) > 0));
-      setTotal(d.total || 0);
-      setTotalPages(d.totalPages || 1);
-    } catch {}
-    setLoading(false);
-  }, [debounced, setF, rarityF, sort, page]);
+  // Infinite scroll: page 1 replaces the list, later pages are appended.
+  const [loadingMore, setLoadingMore] = useState(false);
+  const reqId = useRef(0);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const fetchPage = useCallback(
+    async (pg: number, reset: boolean) => {
+      const id = ++reqId.current;
+      if (reset) setLoading(true);
+      else setLoadingMore(true);
+      try {
+        const p = new URLSearchParams({
+          search: debounced,
+          set: setF,
+          rarity: rarityF,
+          sort,
+          page: String(pg),
+          limit: "24",
+        });
+        const r = await fetch(`/api/cards?${p}`);
+        const d = await r.json();
+        if (id !== reqId.current) return; // a newer search replaced this one
+        const incoming: Card[] = (d.cards || []).filter((c: Card) => (c.quantity ?? 0) > 0);
+        setCards((prev) => {
+          if (reset) return incoming;
+          const seen = new Set(prev.map((c) => c.id));
+          return [...prev, ...incoming.filter((c) => !seen.has(c.id))];
+        });
+        setPage(pg);
+        setTotal(d.total || 0);
+        setTotalPages(d.totalPages || 1);
+      } catch {
+        // keep what we already have
+      } finally {
+        if (id === reqId.current) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
+      }
+    },
+    [debounced, setF, rarityF, sort]
+  );
 
+  // (Re)start from page 1 whenever the search / filters / sort change
   useEffect(() => {
-    setPage(1);
-  }, [debounced, setF, rarityF, sort]);
+    fetchPage(1, true);
+  }, [fetchPage]);
+
+  const hasMore = page < totalPages;
+
+  // Load the next batch when the bottom of the list comes into view
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasMore && !loading && !loadingMore) {
+          fetchPage(page + 1, false);
+        }
+      },
+      { rootMargin: "700px 0px" }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [hasMore, loading, loadingMore, page, fetchPage]);
 
   const cartList = useMemo(() => Object.values(cart), [cart]);
   const cartCount = useMemo(() => cartList.reduce((s, i) => s + i.want, 0), [cartList]);
@@ -258,45 +296,45 @@ export default function ShopPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8">
       {/* Shop header */}
-      <div className="relative overflow-hidden rounded-3xl bg-[#0f1b33] p-6 md:p-8 shadow-2xl">
+      <div className="relative overflow-hidden rounded-3xl bg-[#0f1b33] p-4 sm:p-6 md:p-8 shadow-2xl">
         <Pokeball className="absolute -right-10 -top-10 w-48 h-48 opacity-10 pokeball-spin" />
         <div className="relative flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.3em] text-[#FFCB05]">Public Shop • Shareable Link</p>
-            <h1 className="mt-1 font-display text-2xl md:text-4xl text-white">CHAZMASTER SHOP 🛒</h1>
-            <p className="mt-1 font-semibold text-slate-300 text-sm md:text-base">
+            <h1 className="mt-1 font-display text-xl sm:text-2xl md:text-4xl text-white">CHAZMASTER SHOP 🛒</h1>
+            <p className="mt-1 hidden sm:block font-semibold text-slate-300 text-sm md:text-base">
               Friends: search the vault, add <span className="text-white font-black">multiple cards</span> to your cart, send one sale request. Chaz confirms & packs.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={copyLink} className="rounded-full bg-[#FFCB05] px-6 py-3 font-black text-[#0f1b33] text-sm shadow-lg hover:scale-105 transition-transform">
+            <button onClick={copyLink} className="rounded-full bg-[#FFCB05] px-4 py-2 sm:px-6 sm:py-3 font-black text-[#0f1b33] text-xs sm:text-sm shadow-lg hover:scale-105 transition-transform">
               {copied ? "✅ Copied!" : "🔗 Copy Shop Link"}
             </button>
-            <button onClick={shareNative} className="rounded-full bg-white/10 border-2 border-white/30 px-6 py-3 font-black text-white text-sm hover:bg-white/20">
+            <button onClick={shareNative} className="rounded-full bg-white/10 border-2 border-white/30 px-4 py-2 sm:px-6 sm:py-3 font-black text-white text-xs sm:text-sm hover:bg-white/20">
               📤 Share
             </button>
           </div>
         </div>
-        <div className="relative mt-5 grid gap-3 md:grid-cols-[1.5fr_1fr_1fr_1fr]">
+        <div className="relative mt-4 grid grid-cols-2 gap-2 md:mt-5 md:gap-3 md:grid-cols-[1.5fr_1fr_1fr_1fr]">
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="🔍 Search Charizard, Pikachu, 151…"
-            className="rounded-2xl border-2 border-white/20 bg-white/10 px-4 py-3 font-bold text-sm text-white placeholder:text-slate-400 outline-none focus:border-[#FFCB05]"
+            className="col-span-2 md:col-span-1 rounded-2xl border-2 border-white/20 bg-white/10 px-4 py-2.5 md:py-3 font-bold text-sm text-white placeholder:text-slate-400 outline-none focus:border-[#FFCB05]"
           />
-          <select value={setF} onChange={(e) => setSetF(e.target.value)} className="rounded-2xl border-2 border-white/20 bg-[#1a2b4d] px-3 py-3 font-bold text-sm text-white">
+          <select value={setF} onChange={(e) => setSetF(e.target.value)} className="min-w-0 rounded-2xl border-2 border-white/20 bg-[#1a2b4d] px-2.5 py-2.5 md:px-3 md:py-3 font-bold text-xs md:text-sm text-white">
             <option value="">All Sets</option>
             {sets.map((s) => (
               <option key={s.v} value={s.v}>{s.v} ({s.c})</option>
             ))}
           </select>
-          <select value={rarityF} onChange={(e) => setRarityF(e.target.value)} className="rounded-2xl border-2 border-white/20 bg-[#1a2b4d] px-3 py-3 font-bold text-sm text-white">
+          <select value={rarityF} onChange={(e) => setRarityF(e.target.value)} className="min-w-0 rounded-2xl border-2 border-white/20 bg-[#1a2b4d] px-2.5 py-2.5 md:px-3 md:py-3 font-bold text-xs md:text-sm text-white">
             <option value="">All Rarities</option>
             {rarities.map((s) => (
               <option key={s.v} value={s.v}>{s.v}</option>
             ))}
           </select>
-          <select value={sort} onChange={(e) => setSort(e.target.value)} className="rounded-2xl border-2 border-white/20 bg-[#1a2b4d] px-3 py-3 font-bold text-sm text-white">
+          <select value={sort} onChange={(e) => setSort(e.target.value)} className="col-span-2 md:col-span-1 min-w-0 rounded-2xl border-2 border-white/20 bg-[#1a2b4d] px-2.5 py-2.5 md:px-3 md:py-3 font-bold text-xs md:text-sm text-white">
             <option value="price_asc">Price: low → high</option>
             <option value="price_desc">Price: high → low</option>
             <option value="name_asc">Name A–Z</option>
@@ -321,12 +359,12 @@ export default function ShopPage() {
         </div>
       )}
 
-      <p className="mt-5 text-sm font-bold text-slate-500">{num(total)} cards available • click + to build your multi-card request</p>
+      <p className="mt-4 text-xs sm:text-sm font-bold text-slate-500">{num(total)} cards available • tap + to build your multi-card request</p>
 
       {loading ? (
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-2.5 sm:gap-4 md:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="h-52 animate-pulse rounded-3xl bg-white shadow" />
+            <div key={i} className="h-64 animate-pulse rounded-2xl sm:rounded-3xl bg-white shadow" />
           ))}
         </div>
       ) : cards.length === 0 ? (
@@ -336,11 +374,16 @@ export default function ShopPage() {
           <p className="font-semibold text-slate-500">Try a different search — new scans land daily.</p>
         </div>
       ) : (
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-2.5 sm:gap-4 md:grid-cols-3 xl:grid-cols-4">
           {cards.map((c) => {
             const inCart = cart[c.id]?.want || 0;
             return (
-              <div key={c.id} className="card-shine rounded-3xl bg-white p-3 shadow-lg border-2 border-slate-100 hover:border-[#FFCB05] hover:shadow-xl transition-all flex flex-col">
+              <div
+                key={c.id}
+                className={`card-shine flex min-w-0 flex-col rounded-2xl sm:rounded-3xl bg-white p-1.5 sm:p-3 shadow-md sm:shadow-lg border-2 transition-all hover:shadow-xl ${
+                  inCart > 0 ? "border-[#FFCB05] ring-2 ring-yellow-100" : "border-slate-100 hover:border-[#FFCB05]"
+                }`}
+              >
                 <div className="relative">
                   <CardImage
                     cardName={c.cardName}
@@ -350,38 +393,44 @@ export default function ShopPage() {
                     cardId={c.id}
                     className="shadow-md"
                   />
-                  <span className={`absolute top-2 left-2 rounded-full px-2.5 py-1 text-[10px] font-black shadow-lg ${rarityColor(c.rarity)}`}>{c.rarity || "?"}</span>
+                  <span className={`absolute top-1 left-1 sm:top-2 sm:left-2 max-w-[70%] truncate rounded-full px-1.5 py-0.5 sm:px-2.5 sm:py-1 text-[8px] sm:text-[10px] font-black shadow-lg ${rarityColor(c.rarity)}`}>{c.rarity || "?"}</span>
                   {c.quantity <= 2 && (
-                    <span className="absolute top-2 right-2 rounded-full bg-red-600 px-2 py-1 text-[10px] font-black text-white shadow-lg animate-pulse">
+                    <span className="hidden sm:block absolute top-2 right-2 rounded-full bg-red-600 px-2 py-1 text-[10px] font-black text-white shadow-lg animate-pulse">
                       🔥 Only {c.quantity}
                     </span>
                   )}
+                  {inCart > 0 && (
+                    <span className="absolute bottom-1 right-1 sm:bottom-2 sm:right-2 grid h-5 min-w-5 sm:h-6 sm:min-w-6 place-items-center rounded-full bg-[#FFCB05] px-1 text-[10px] sm:text-xs font-black text-[#0f1b33] shadow-lg">
+                      {inCart}
+                    </span>
+                  )}
                 </div>
-                <div className="flex items-start justify-between gap-2 mt-2 px-1">
-                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${conditionColor(c.condition)}`}>{c.variant} • {c.condition}</span>
-                  <span className="text-[10px] font-black text-slate-400">#{c.cardNumber || "—"}</span>
+                <div className="mt-1 sm:mt-2 flex items-center justify-between gap-1 px-0.5 sm:px-1">
+                  <span className={`truncate rounded-full border px-1.5 py-0.5 text-[8px] sm:text-[10px] font-black ${conditionColor(c.condition)}`}>{c.variant} • {c.condition}</span>
+                  <span className="shrink-0 text-[9px] sm:text-[10px] font-black text-slate-400">#{c.cardNumber || "—"}</span>
                 </div>
-                <h3 className="mt-1 px-1 font-black text-base leading-tight line-clamp-1" title={c.cardName}>{c.cardName}</h3>
-                <p className="px-1 truncate text-xs font-bold text-slate-500">{c.setName}</p>
-                <div className="mt-1 px-1 flex items-center justify-between">
-                  <span className="text-xl font-black text-[#0f1b33]">{money(c.price)}</span>
-                  <span className={`text-xs font-black ${c.quantity <= 2 ? "text-red-500" : "text-emerald-600"}`}>
-                    {c.quantity <= 2 ? `🔥 ${c.quantity} left` : `✓ ${c.quantity} in stock`}
+                <h3 className="mt-0.5 sm:mt-1 px-0.5 sm:px-1 text-[13px] sm:text-base font-black leading-tight line-clamp-1" title={c.cardName}>{c.cardName}</h3>
+                <p className="hidden sm:block px-1 truncate text-xs font-bold text-slate-500">{c.setName}</p>
+                <div className="mt-0.5 sm:mt-1 flex items-center justify-between gap-1 px-0.5 sm:px-1">
+                  <span className="text-base sm:text-xl font-black text-[#0f1b33]">{money(c.price)}</span>
+                  <span className={`text-[9px] sm:text-xs font-black ${c.quantity <= 2 ? "text-red-500" : "text-emerald-600"}`}>
+                    {c.quantity <= 2 ? `🔥 ${c.quantity} left` : `✓ ${c.quantity}`}
+                    <span className="hidden sm:inline">{c.quantity <= 2 ? "" : " in stock"}</span>
                   </span>
                 </div>
-                <div className="mt-3 mt-auto pt-2">
+                <div className="mt-auto pt-1 sm:pt-2">
                   {inCart === 0 ? (
                     <button
                       onClick={() => addToCart(c)}
-                      className="w-full rounded-2xl bg-gradient-to-b from-[#ff5350] to-[#CC0000] py-2.5 font-black text-white text-sm shadow border-b-4 border-red-900 hover:brightness-110 active:border-b-0 active:translate-y-0.5 transition-all"
+                      className="w-full rounded-xl sm:rounded-2xl bg-gradient-to-b from-[#ff5350] to-[#CC0000] py-1.5 sm:py-2.5 text-xs sm:text-sm font-black text-white shadow border-b-2 sm:border-b-4 border-red-900 hover:brightness-110 active:border-b-0 active:translate-y-0.5 transition-all"
                     >
-                      + Add to Request
+                      + Add<span className="hidden sm:inline"> to Request</span>
                     </button>
                   ) : (
-                    <div className="flex items-center justify-between rounded-2xl bg-[#0f1b33] p-1.5">
-                      <button onClick={() => setWant(c.id, inCart - 1)} className="grid h-8 w-8 place-items-center rounded-xl bg-white/15 font-black text-white hover:bg-white/25">−</button>
-                      <span className="font-black text-[#FFCB05] text-sm">{inCart} in cart</span>
-                      <button onClick={() => setWant(c.id, inCart + 1)} disabled={inCart >= c.quantity} className="grid h-8 w-8 place-items-center rounded-xl bg-[#FFCB05] font-black text-[#0f1b33] disabled:opacity-40">+</button>
+                    <div className="flex items-center justify-between rounded-xl sm:rounded-2xl bg-[#0f1b33] p-1 sm:p-1.5">
+                      <button onClick={() => setWant(c.id, inCart - 1)} className="grid h-7 w-7 sm:h-8 sm:w-8 place-items-center rounded-lg sm:rounded-xl bg-white/15 font-black text-white hover:bg-white/25">−</button>
+                      <span className="text-xs sm:text-sm font-black text-[#FFCB05]">{inCart}<span className="hidden sm:inline"> in cart</span></span>
+                      <button onClick={() => setWant(c.id, inCart + 1)} disabled={inCart >= c.quantity} className="grid h-7 w-7 sm:h-8 sm:w-8 place-items-center rounded-lg sm:rounded-xl bg-[#FFCB05] font-black text-[#0f1b33] disabled:opacity-40">+</button>
                     </div>
                   )}
                 </div>
@@ -391,10 +440,16 @@ export default function ShopPage() {
         </div>
       )}
 
-      <div className="mt-6 flex items-center justify-center gap-2 pb-28">
-        <button disabled={page <= 1} onClick={() => { setPage((p) => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="rounded-full bg-white border-2 border-slate-200 px-5 py-2 font-black text-sm disabled:opacity-40 shadow">← Prev</button>
-        <span className="rounded-full bg-[#0f1b33] px-4 py-2 text-sm font-black text-white">{page} / {totalPages}</span>
-        <button disabled={page >= totalPages} onClick={() => { setPage((p) => p + 1); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="rounded-full bg-white border-2 border-slate-200 px-5 py-2 font-black text-sm disabled:opacity-40 shadow">Next →</button>
+      {/* Infinite scroll trigger: when this comes into view, the next batch loads */}
+      <div ref={sentinelRef} className="flex min-h-24 items-center justify-center pb-28 pt-6">
+        {loadingMore && (
+          <div className="flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-black text-[#0f1b33] shadow">
+            <Pokeball className="h-5 w-5 animate-spin" /> Loading more cards…
+          </div>
+        )}
+        {!loading && !loadingMore && cards.length > 0 && !hasMore && (
+          <p className="text-xs font-black uppercase tracking-widest text-slate-400">✨ You&apos;ve seen all {num(cards.length)} cards</p>
+        )}
       </div>
 
       {/* Floating cart bar */}
