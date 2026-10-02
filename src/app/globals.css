@@ -1,0 +1,99 @@
+@import url('https://fonts.googleapis.com/css2?family=Bungee&family=Nunito:wght@400;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+:root {
+  --chaz-yellow: #FFCB05;
+  --chaz-blue: #2A75BB;
+  --chaz-navy: #0f1b33;
+  --chaz-red: #CC0000;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Nunito', system-ui, sans-serif;
+  background-color: #f2f5fb;
+  background-image:
+    radial-gradient(circle at 10% 10%, rgba(42,117,187,0.08) 0 2px, transparent 3px),
+    radial-gradient(circle at 90% 20%, rgba(204,0,0,0.06) 0 2px, transparent 3px),
+    radial-gradient(circle at 50% 90%, rgba(255,203,5,0.15) 0 2px, transparent 3px);
+  background-size: 48px 48px, 64px 64px, 56px 56px;
+}
+
+.font-display {
+  font-family: 'Bungee', 'Nunito', sans-serif;
+}
+
+.text-outline {
+  -webkit-text-stroke: 2px #2A75BB;
+  paint-order: stroke fill;
+}
+
+.card-shine {
+  position: relative;
+  overflow: hidden;
+}
+.card-shine::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.35) 50%, transparent 60%);
+  transform: translateX(-120%);
+  transition: transform 0.7s ease;
+  pointer-events: none;
+}
+.card-shine:hover::after {
+  transform: translateX(120%);
+}
+
+.pokeball-spin {
+  animation: spin 12s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.wiggle:hover {
+  animation: wiggle 0.4s ease-in-out;
+}
+@keyframes wiggle {
+  0%,100% { transform: rotate(0); }
+  25% { transform: rotate(-4deg) scale(1.03); }
+  75% { transform: rotate(4deg) scale(1.03); }
+}
+
+.float-slow {
+  animation: floaty 5s ease-in-out infinite;
+}
+@keyframes floaty {
+  0%,100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.holo-bg {
+  background: linear-gradient(135deg, #fef9c3, #bfdbfe, #fecdd3, #bbf7d0, #fef9c3);
+  background-size: 300% 300%;
+  animation: holo 8s ease infinite;
+}
+@keyframes holo {
+  0%,100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 8px;
+}
+
+/* table sticky header */
+.sticky-th th {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
